@@ -1,81 +1,98 @@
 pipeline {
-    agent any 
-    
-    tools{
+    agent any
+
+    tools {
         jdk 'jdk11'
         maven 'maven3'
     }
-    
+
     environment {
-        SCANNER_HOME=tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar-scanner'
     }
-    
-    stages{
-        
-        stage("Git Checkout"){
-            steps{
-                git branch: 'main', changelog: false, poll: false, url: 'https://github.com/jaiswaladi246/Petclinic.git'
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main', changelog: false, poll: false, url: 'https://github.com/HarshwardhanBaghel/ci-cd-project.git'
             }
         }
-        
-        stage("Compile"){
-            steps{
+
+        stage('Code compile') {
+            steps {
                 sh "mvn clean compile"
             }
         }
-        
-         stage("Test Cases"){
-            steps{
+
+        stage('Unit Test') {
+            steps {
                 sh "mvn test"
             }
         }
-        
-        stage("Sonarqube Analysis "){
-            steps{
-                withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Petclinic \
-                    -Dsonar.java.binaries=. \
-                    -Dsonar.projectKey=Petclinic '''
-    
+
+        stage('sonar-scanner') {
+            steps {
+                withSonarQubeEnv(credentialsId: 'Sonar-token', installationName: 'Sonar-server') {
+                    sh '''
+                        $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Petclinic \
+                        -Dsonar.exclusions=**/*.java \
+                        -Dsonar.projectKey=Petclinic
+                    '''
                 }
             }
         }
-        
-        stage("OWASP Dependency Check"){
-            steps{
-                dependencyCheck additionalArguments: '--scan ./ --format HTML ', odcInstallation: 'DP'
+
+        stage('OWASP Scan') {
+            steps {
+                // Run the Dependency-Check scan and generate an XML report
+                dependencyCheck additionalArguments: '--scan ./ --format XML --out .', odcInstallation: 'DP-check'
+
+                // Publish the generated XML report
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
-        
-         stage("Build"){
-            steps{
-                sh " mvn clean install"
+
+        stage('Build Artifact') {
+            steps {
+                sh "mvn clean install"
             }
         }
-        
-        stage("Docker Build & Push"){
-            steps{
-                script{
-                   withDockerRegistry(credentialsId: '58be877c-9294-410e-98ee-6a959d73b352', toolName: 'docker') {
-                        
-                        sh "docker build -t image1 ."
-                        sh "docker tag image1 adijaiswal/pet-clinic123:latest "
-                        sh "docker push adijaiswal/pet-clinic123:latest "
+
+        stage('Docker Build') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-hub', toolName: 'docker') {
+                        // Build Docker image
+                        sh "docker build -t petclinic7 ."
                     }
                 }
             }
         }
-        
-        stage("TRIVY"){
-            steps{
-                sh " trivy image adijaiswal/pet-clinic123:latest"
+
+        stage('Docker Tag & Push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-hub', toolName: 'docker') {
+                        // Tag Docker image with a version (e.g., build number or commit ID)
+                        def imageTag = "blackopsgun/pet-clinic7:latest"
+                        sh "docker tag petclinic1 $imageTag"
+
+                        // Push to Docker Hub
+                        sh "docker push $imageTag"
+                    }
+                }
             }
         }
-        
-        stage("Deploy To Tomcat"){
-            steps{
-                sh "cp  /var/lib/jenkins/workspace/CI-CD/target/petclinic.war /opt/apache-tomcat-9.0.65/webapps/ "
+
+        stage('Docker Deploy') {
+            steps {
+                script {
+                    // Deploy the container
+                    def containerName = "pet7"
+                    sh "docker run -d --name $containerName -p 8082:8080 blackopsgun/pet-clinic7:latest"
+
+                    // Optionally, verify if the container is running (you could also use docker ps to confirm)
+                    sh "docker ps -f name=$containerName"
+                }
             }
         }
     }
